@@ -1,0 +1,29 @@
+FROM golang:1.24 AS awg
+ARG TAG
+RUN apt-get -qq update && apt-get -qq install -y musl-tools ca-certificates git
+ENV CC=/usr/bin/musl-gcc
+RUN git clone https://github.com/amnezia-vpn/amneziawg-go.git /awg
+WORKDIR /build
+WORKDIR "/$TAG"
+RUN go mod download && \
+    go mod verify && \
+    go build -ldflags '-linkmode external -extldflags "-fno-PIC -static"' -v -o /build
+
+
+FROM alpine:3.19 AS awg-tools
+RUN apk add ca-certificates git linux-headers build-base
+RUN git clone https://github.com/amnezia-vpn/amneziawg-tools.git /awg-tools
+WORKDIR /build
+WORKDIR /awg-tools/src
+RUN make && \
+    cp wg /build/awg && \
+    cp wg-quick/linux.bash /build/awg-quick
+
+
+FROM alpine:3.19
+RUN apk --no-cache add iproute2 iptables bash
+COPY --from=awg /build/amneziawg-go /usr/bin/amneziawg-go
+COPY --from=awg-tools /build/awg /usr/bin/awg
+COPY --from=awg-tools /build/awg-quick /usr/bin/awg-quick
+RUN ln -s /usr/bin/awg /usr/bin/wg && \
+    ln -s /usr/bin/awg-quick /usr/bin/wg-quick
